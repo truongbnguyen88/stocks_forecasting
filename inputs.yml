@@ -1,6 +1,8 @@
 params :
-  start_dt : "2018-01-01"
-  split_dt : "2025-03-01"
+  stock_sticker : "TSLA"
 
-  real_fc_start_dt : "2025-04-29"
+  start_dt : "2018-01-01"
+  split_dt : "2025-03-15"
+
+  real_fc_start_dt : "2025-05-01"
   real_fc_end_dt : "2025-08-15"
