@@ -1,4 +1,5 @@
 from prophet import Prophet
+from neuralprophet import NeuralProphet
 import xgboost as xgb
 
 import sys, os, yaml, ta
@@ -10,6 +11,7 @@ import matplotlib.pyplot as plt
 
 import yfinance as yf
 from dateutil.relativedelta import relativedelta
+from datetime import timedelta
 
 
 def import_stock_data(stock_sticker, start_dt):
@@ -377,25 +379,35 @@ def create_train_test_sets(df_in, split_date=None, start_date=None):
     # drop weekends
     df['dayofweek'] = df['ds'].dt.dayofweek
     df = df[df['ds'].dt.dayofweek < 5]  # Keep only weekdays (Monday to Friday)
+    # df = df[df['dayofweek'] < 5]  # Keep only weekdays (Monday to Friday)
     train_df = df[df['ds'] < split_date]
-    test_df = df[df['ds'] >= split_date]
+    test_df  = df[df['ds'] >= split_date]
     return df, train_df, test_df
 
 
 def train_prophet_model(df_train, exo_vars):
     model = Prophet(
-                changepoint_prior_scale=0.1,
-                changepoint_range=0.7,
-                n_changepoints=10,
+                changepoint_prior_scale=0.8,
+                changepoint_range=1.0,
+                n_changepoints=40,
                 interval_width=0.7,
                 yearly_seasonality=True,
                 weekly_seasonality=True,
                 seasonality_mode='multiplicative',
                 daily_seasonality=False,
-                seasonality_prior_scale=0.9,
+                seasonality_prior_scale=0.3,
             )
     model.add_seasonality(name='monthly', period=30, fourier_order=3, prior_scale=2.0)
     model.add_seasonality(name='quarterly', period=91, fourier_order=3, prior_scale=2.0)
+
+    # model = NeuralProphet(
+    #     n_changepoints=10,
+    #     # Disable seasonality components
+    #     yearly_seasonality=True,
+    #     weekly_seasonality=True,
+    #     daily_seasonality=False,
+    #     n_lags=2,
+    # )
 
     # add lags
     df_train['y_lag1'] = df_train['y'].shift(1)
@@ -403,7 +415,6 @@ def train_prophet_model(df_train, exo_vars):
     for lag in ['y_lag1', 'y_lag2']:
         model.add_regressor(lag)
     df_train.dropna(subset=['y_lag1','y_lag2'], inplace=True)
-
     model.fit(df_train) 
     return model
 
@@ -482,20 +493,19 @@ def predict_future_exo_vars(df_train, df_test, exo_vars, lag_vars=None):
     # making raw forecasts for exogenous variables
     for var in exo_vars:
         print(var)
-        # m = Prophet(
-        #         changepoint_prior_scale=0.2,
-        #         changepoint_range=0.8,
-        #         n_changepoints=10,
-        #         interval_width=0.7,
-        #         yearly_seasonality=True,
-        #         weekly_seasonality=False,
-        #         seasonality_mode='multiplicative',
-        #         daily_seasonality=False,
-        #         seasonality_prior_scale=0.5,
-        #     )
-        m = Prophet()
-        # m.add_seasonality(name='monthly', period=30, fourier_order=7, prior_scale=0.5)
-        # m.add_seasonality(name='quarterly', period=91, fourier_order=7, prior_scale=0.5)
+        m = Prophet(
+                changepoint_prior_scale=0.2,
+                changepoint_range=0.8,
+                n_changepoints=10,
+                interval_width=0.7,
+                yearly_seasonality=True,
+                weekly_seasonality=False,
+                seasonality_mode='multiplicative',
+                daily_seasonality=False,
+                seasonality_prior_scale=0.5,
+            )
+        m.add_seasonality(name='monthly', period=30, fourier_order=3, prior_scale=0.5)
+        m.add_seasonality(name='quarterly', period=91, fourier_order=3, prior_scale=0.5)
         df_train_var = df_train[['ds', var]].rename(columns={var: 'y'})
         m.fit(df_train_var)
         future = df[['ds']].copy(deep=True)
@@ -611,26 +621,27 @@ def generate_future_exogeneous_vars_forecasts(df_in, exo_vars, lag_vars=None, st
 
     start_fc_date = pd.to_datetime(start_fc_date)
     end_fc_date   = pd.to_datetime(end_fc_date)
-    num_days = (end_fc_date - start_fc_date).days
-    df_exo_vars_forecast = pd.DataFrame({'ds': pd.date_range(start=start_fc_date, end=end_fc_date, freq='D')})
+    num_days = (end_fc_date - start_fc_date).days + 1
+    # df_exo_vars_forecast = pd.DataFrame({'ds': pd.date_range(start=start_fc_date, end=end_fc_date, freq='D')})
+    df_exo_vars_forecast = pd.DataFrame({'ds': pd.date_range(start=pd.to_datetime('2018-01-01'), end=end_fc_date, freq='D')})
     df_exo_vars_forecast = df_exo_vars_forecast[df_exo_vars_forecast['ds'].dt.dayofweek < 5]  # Keep only weekdays (Monday to Friday)
 
+    # make mini-raw-forecasts for exogeneous variables
     for var in exo_vars:
         print(var)
-        # m = Prophet(
-        #         changepoint_prior_scale=0.2,
-        #         changepoint_range=0.8,
-        #         n_changepoints=10,
-        #         interval_width=0.7,
-        #         yearly_seasonality=True,
-        #         weekly_seasonality=False,
-        #         seasonality_mode='multiplicative',
-        #         daily_seasonality=False,
-        #         seasonality_prior_scale=0.3,
-        #     )
-        m = Prophet()
-        # m.add_seasonality(name='monthly', period=30, fourier_order=2, prior_scale=1.0)
-        # m.add_seasonality(name='quarterly', period=91, fourier_order=2, prior_scale=1.0)
+        m = Prophet(
+                changepoint_prior_scale=0.2,
+                changepoint_range=0.8,
+                n_changepoints=10,
+                interval_width=0.7,
+                yearly_seasonality=True,
+                weekly_seasonality=False,
+                seasonality_mode='multiplicative',
+                daily_seasonality=False,
+                seasonality_prior_scale=0.5,
+            )
+        m.add_seasonality(name='monthly', period=30, fourier_order=3, prior_scale=0.5)
+        m.add_seasonality(name='quarterly', period=91, fourier_order=3, prior_scale=0.5)
         df_train_var = df[['ds', var]].rename(columns={var: 'y'})
         m.fit(df_train_var)
 
@@ -655,6 +666,9 @@ def generate_future_exogeneous_vars_forecasts(df_in, exo_vars, lag_vars=None, st
         forecast = m.predict(future)
         df_exo_vars_forecast = df_exo_vars_forecast.merge(forecast[['ds', 'yhat']], on='ds', how='left')
         df_exo_vars_forecast.rename(columns={'yhat': var}, inplace=True)
+
+    print(df_exo_vars_forecast.shape, df_exo_vars_forecast['ds'].min(), df_exo_vars_forecast['ds'].max())
+
     return df_exo_vars_forecast
 
 
@@ -673,8 +687,7 @@ def predict_with_forecasted_exo_vars(df_exo_vars_forecast_in,
     future = prophet_model.make_future_dataframe(periods=num_days, freq='D')
     # incorporate predicted lag_vars into future df to make Prophet forecast
     future = future.merge(df[['ds']+lag_vars], on='ds', how='left')
-    print(future.shape)
-    future.dropna(subset=lag_vars, inplace=True)
+    future.dropna(subset=['y_lag1','y_lag2'], inplace=True)
     future = future[future['ds'].dt.dayofweek < 5]  # Keep only weekdays (Monday to Friday)
     forecast = prophet_model.predict(future)
     forecast_historical = forecast[forecast['ds'] < start_fc_dt]
@@ -683,8 +696,8 @@ def predict_with_forecasted_exo_vars(df_exo_vars_forecast_in,
     # making predictions with xgb_model for residuals
     X_test = df[df['ds'] >= start_fc_dt][exo_vars+eps_cols]
 
-    print(forecast.shape)
-    print(X_test.shape)
+    display( df[df['ds'] >= start_fc_dt].tail() )
+    display( forecast.tail() )
 
     print(exo_vars)
 
